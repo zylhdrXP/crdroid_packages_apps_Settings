@@ -62,24 +62,17 @@ class BuildMaintainerPreference :
 
         val context = preference.context
 
-        if (!isOfficiallySigned(context)) {
-            resolvedMaintainer = ""
-            resolvedDonateUrl = null
-            applyUnofficialState(preference)
-            return
-        }
-
         val overlayMaintainer = safeGetString(context, R.string.build_maintainer_summary).trim()
         val overlayDonateUrl = safeGetString(context, R.string.build_maintainer_donate_url)
 
-        if (resolvedMaintainer.isEmpty()) {
+        if (isOfficiallySigned(context) && resolvedMaintainer.isEmpty()) {
             resolvedMaintainer = overlayMaintainer
         }
-        if (resolvedDonateUrl == null) {
+        if (isOfficiallySigned(context) && resolvedDonateUrl == null) {
             resolvedDonateUrl = sanitizeUrlOrNull(overlayDonateUrl)
         }
 
-        applyOfficialState(preference)
+        applyState(preference)
 
         if (!fetchStarted) {
             fetchStarted = true
@@ -88,17 +81,14 @@ class BuildMaintainerPreference :
     }
 
     override fun getSummary(context: Context): CharSequence? {
-        if (!isOfficiallySigned(context)) {
-            return unofficialLabel(context)
-        }
         val maintainer = resolvedMaintainer
         if (maintainer.isNotEmpty()) return maintainer
+        if (!isOfficiallySigned(context)) return unofficialLabel(context)
         return safeGetString(context, R.string.build_maintainer_summary).trim()
             .ifEmpty { null }
     }
 
     override fun onPreferenceClick(preference: Preference): Boolean {
-        if (!isOfficiallySigned(preference.context)) return true
         val url = resolvedDonateUrl ?: return true
         try {
             val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
@@ -116,13 +106,15 @@ class BuildMaintainerPreference :
         preference.isSelectable = false
     }
 
-    private fun applyOfficialState(preference: Preference) {
+    private fun applyState(preference: Preference) {
         val maintainer = resolvedMaintainer
         val hasMaintainer = maintainer.isNotEmpty()
-        preference.isVisible = hasMaintainer
-        if (hasMaintainer) {
-            preference.summary = maintainer
+        if (!hasMaintainer && !isOfficiallySigned(preference.context)) {
+            applyUnofficialState(preference)
+            return
         }
+        preference.isVisible = hasMaintainer
+        if (hasMaintainer) preference.summary = maintainer
         preference.isSelectable = hasMaintainer && resolvedDonateUrl != null
     }
 
@@ -195,12 +187,16 @@ class BuildMaintainerPreference :
                     resolvedMaintainer = finalInfo.maintainer.trim()
                     resolvedDonateUrl = sanitizeUrlOrNull(finalInfo.donateUrl)
                     Log.d(TAG, "Using OTA maintainer for $finalCodename: $resolvedMaintainer")
-                } else {
+                } else if (isOfficiallySigned(preference.context)) {
                     resolvedMaintainer = overlayMaintainer
                     resolvedDonateUrl = sanitizeUrlOrNull(overlayDonateUrl)
                     Log.d(TAG, "Using overlay maintainer: no eligible OTA entry found")
+                } else {
+                    resolvedMaintainer = ""
+                    resolvedDonateUrl = null
+                    Log.d(TAG, "Using unofficial label: no eligible OTA entry found")
                 }
-                applyOfficialState(preference)
+                applyState(preference)
             }
         }
     }
@@ -304,8 +300,8 @@ class BuildMaintainerPreference :
         private const val PLATFORM_PACKAGE = "android"
 
         private const val OTA_JSON_URL =
-            "https://raw.githubusercontent.com/crdroidandroid/" +
-                "android_vendor_crDroidOTA/refs/heads/17.0/%s.json"
+            "https://raw.githubusercontent.com/zylhdrXP/" +
+                "OTA/refs/heads/17.0/%s.json"
 
         private val OFFICIAL_PLATFORM_CERT_SHA256: Set<String> = setOf(
             "73fdfbf41fe6255a3fbc3cfda8b6666f4124f940f499bdd82f1566da68e45732",
